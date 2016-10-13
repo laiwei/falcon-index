@@ -1,0 +1,16 @@
+package doc;
+
+message MetaDoc
+{
+    required string endpoint = 1;
+    required string metric = 2;
+    required string counterType = 3;
+    required int64 step = 4;
+    repeated Pair tags = 5;
+}
+
+message Pair
+{
+    optional string key = 1;
+    optional string value = 2;
+}
