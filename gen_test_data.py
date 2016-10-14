@@ -4,7 +4,7 @@ import sys
 import json
 
 def gen(count):
-    print "["
+    print "[",
     for x in range(0, count):
         d = {
             "endpoint": "laiwei-test%s" %(x,),
@@ -15,8 +15,11 @@ def gen(count):
             "tags": "home=bj,srv=falcon",
             "timestamp": 1234567
         }
-        print json.dumps(d)
-        print ","
+        print json.dumps(d),
+
+        if x < count-1:
+            print ","
+
     print "]"
 
 

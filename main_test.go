@@ -9,15 +9,15 @@ func init() {
 	g.OpenDB()
 }
 
-func BenchmarkQueryByTerm(b *testing.B) {
+func BenchmarkQueryDocByTerm(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		index.QueryByTerm("home=bj", []byte(""), 50)
+		index.QueryDocByTerm("home=bj", []byte(""), 50)
 	}
 }
 
-func BenchmarkQueryByTerms(b *testing.B) {
+func BenchmarkQueryDocByTerms(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		index.QueryByTerms([]string{"home=bj", "metric=cpu.idle"}, nil, 5)
+		index.QueryDocByTerms([]string{"home=bj", "metric=cpu.idle"}, nil, 5)
 	}
 }
 
@@ -33,20 +33,24 @@ func BenchmarkQueryFieldByTerms(b *testing.B) {
 	}
 }
 
-func TestQueryByTerm(t *testing.T) {
-	docs, err := index.QueryByTerm("home=bj", []byte(""), 2)
+func TestQueryDocByTerm(t *testing.T) {
+	docs, err := index.QueryDocByTerm("home=bj", []byte(""), 2)
 	for _, doc := range docs {
 		fmt.Printf("%v, %v\n", doc, err)
 	}
 }
-func TestQueryByTerms(t *testing.T) {
-	docs, offset, err := index.QueryByTerms([]string{"home=bj"}, nil, 2)
+func TestQueryDocByTerms(t *testing.T) {
+	//endpoint=laiwei-test1 5bd9dee871d734fc94aaf7ebbe40610f
+	//docs, offset, err := index.QueryDocByTerms([]string{"home=bj", "endpoint=laiwei-test1"}, nil, 2)
+	offset := &index.Offset{
+		Bucket:   []byte("endpoint=laiwei-test1"),
+		Position: []byte("5bd9dee871d734fc94aaf7ebbe40610f"),
+	}
+	docs, offset, err := index.QueryDocByTerms([]string{"home=bj", "endpoint=laiwei-test1"}, offset, 2)
 	if err != nil {
 		fmt.Printf("query by terms error:%v\n", err)
 	}
-	for _, doc := range docs {
-		fmt.Printf("---%v %v %v, %v\n", doc, string(offset.Bucket), string(offset.Position), err)
-	}
+	fmt.Printf("---TestQueryDocByTerms %v %v %v, %v\n", docs, string(offset.Bucket), string(offset.Position), err)
 }
 
 func TestQueryFieldByTerm(t *testing.T) {
