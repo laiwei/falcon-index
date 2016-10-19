@@ -40,17 +40,18 @@ func TestQueryDocByTerm(t *testing.T) {
 	}
 }
 func TestQueryDocByTerms(t *testing.T) {
-	//endpoint=laiwei-test1 5bd9dee871d734fc94aaf7ebbe40610f
-	//docs, offset, err := index.QueryDocByTerms([]string{"home=bj", "endpoint=laiwei-test1"}, nil, 2)
 	offset := &index.Offset{
 		Bucket:   []byte("endpoint=laiwei-test1"),
 		Position: []byte("5bd9dee871d734fc94aaf7ebbe40610f"),
 	}
-	docs, offset, err := index.QueryDocByTerms([]string{"home=bj", "endpoint=laiwei-test1"}, offset, 2)
+	docs, offset, err := index.QueryDocByTerms([]string{"home=bj", "endpoint=laiwei-test1"}, nil, 10)
 	if err != nil {
-		fmt.Printf("query by terms error:%v\n", err)
+		t.Fatal(err)
 	}
-	fmt.Printf("---TestQueryDocByTerms %v %v %v, %v\n", docs, string(offset.Bucket), string(offset.Position), err)
+	if len(docs) != 1 {
+		t.Fatal(fmt.Errorf("return docs size not match 1"))
+	}
+	fmt.Printf("---TestQueryDocByTerms %#v %v %v, %v\n", docs, string(offset.Bucket), string(offset.Position), err)
 }
 
 func TestQueryFieldByTerm(t *testing.T) {
@@ -71,4 +72,24 @@ func TestSearchField(t *testing.T) {
 func TestSearchFieldValue(t *testing.T) {
 	rt, err := index.SearchFieldValue("endpoint", "laiwei", "", 10)
 	fmt.Printf("%s, %v\n", rt, err)
+}
+
+func TestQueryFieldValueByTerms(t *testing.T) {
+	start := &index.Offset{
+		Bucket: []byte("metric=cpu.idle"), Position: []byte("007274a9c1dd1701eb6450ebd4e521e8"),
+	}
+	rt, offset, err := index.QueryFieldValueByTerms([]string{"home=bj", "metric=cpu.idle"}, start, 2, "endpoint", "1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rt) != 2 {
+		t.Fatal(fmt.Errorf("result size not match"))
+	}
+	if offset == nil {
+		t.Fatal(fmt.Errorf("return offset is nil"))
+	}
+	if string(offset.Position) != "0172b9796501674f61e1d3548b52104c" {
+		t.Fatal(fmt.Errorf("return position not match 0172b9796501674f61e1d3548b52104c"))
+	}
+	fmt.Printf("-----TestQueryFieldValueByTerms: %s, %s, %s, %v\n", rt, offset.Bucket, offset.Position, err)
 }

@@ -24,18 +24,45 @@ func termsToDict(terms []string) map[string]string {
 	return rt
 }
 
-func findShortestTermDocList(terms []string) (string, error) {
+func findShortestTermDocBucket(terms []string) (string, error) {
 	if len(terms) == 0 {
 		return "", fmt.Errorf("empty_terms")
 	}
 
-	bucket := ""
+	if len(terms) == 1 {
+		return terms[0], nil
+	}
+
+	terms_dict := make(map[string]string)
+	for _, t := range terms {
+		terms_dict[t] = ""
+	}
+
+	metric_t := ""
+	for _, t := range terms {
+		if strings.HasPrefix(t, "metric=") {
+			metric_t = t
+			break
+		}
+	}
+
+	terms_ := make([]string, 0)
+	if metric_t != "" {
+		delete(terms_dict, metric_t)
+		for t, _ := range terms_dict {
+			terms_ = append(terms_, metric_t+","+t)
+		}
+	} else {
+		terms_ = terms
+	}
+
+	rt_bucket := ""
 	var min_sz int64 = -1
 
 	err := g.KVDB.View(func(tx *bolt.Tx) error {
-		for _, term := range terms {
-			term_key := g.TERM_DOCS_BUCKET_PREFIX + term
-			b := tx.Bucket([]byte(term_key))
+		for _, term := range terms_ {
+			term_bname := g.TERM_DOCS_BUCKET_PREFIX + term
+			b := tx.Bucket([]byte(term_bname))
 			if b == nil {
 				return fmt.Errorf("no_such_bucket:%s", term)
 			}
@@ -50,7 +77,7 @@ func findShortestTermDocList(terms []string) (string, error) {
 			isz := g.BytesToInt64(sz)
 			if min_sz < 0 || isz <= min_sz {
 				min_sz = isz
-				bucket = term
+				rt_bucket = term
 			}
 		}
 		return nil
@@ -59,12 +86,10 @@ func findShortestTermDocList(terms []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return bucket, nil
+	return rt_bucket, nil
 }
 
 func QueryDocByTerm(term string, start []byte, limit int) ([]*doc.Doc, error) {
-	//log.Printf("query by term:%s, start:%v, limit:%v\n", term, string(start), limit)
-
 	docs := make([]*doc.Doc, 0)
 
 	err := g.KVDB.View(func(tx *bolt.Tx) error {
@@ -85,15 +110,16 @@ func QueryDocByTerm(term string, start []byte, limit int) ([]*doc.Doc, error) {
 			k, v = c.Next()
 		}
 		for ; i < limit && k != nil; k, v = c.Next() {
-			i++
 			mdoc := &doc.MetaDoc{}
 			err := mdoc.Unmarshal(v)
+			//NOTICE:
 			if err != nil {
 				log.Printf("decode doc:%s fail:%s", v, err)
-				mdoc = nil
+				continue
 			}
+			i++
 			doc_ := &doc.Doc{
-				ID:      string(k[:]),
+				ID:      string(k),
 				MetaDoc: mdoc,
 			}
 			docs = append(docs, doc_)
@@ -110,36 +136,29 @@ func QueryDocByTerm(term string, start []byte, limit int) ([]*doc.Doc, error) {
 }
 
 func QueryDocByTerms(terms []string, start *Offset, limit int) ([]*doc.Doc, *Offset, error) {
-	docs := make([]*doc.Doc, 0)
-	offset := &Offset{}
-
-	var term string
+	var rt_offset *Offset
+	var sterm string
 	var start_pos []byte
+
 	var err error
+	docs := make([]*doc.Doc, 0)
 	if start == nil {
-		term, err = findShortestTermDocList(terms)
+		sterm, err = findShortestTermDocBucket(terms)
 		if err != nil {
 			return docs, nil, err
 		}
 		start_pos = nil
 	} else {
-		term = string(start.Bucket)
+		sterm = string(start.Bucket)
 		start_pos = start.Position
 	}
-
-	offset.Bucket = []byte(term)
-	offset.Position = start_pos
 
 	n := 0
 	terms_dict := termsToDict(terms)
 	for {
-		if n >= limit {
-			break
-		}
-
-		candidate_docs, err := QueryDocByTerm(term, start_pos, limit*2)
+		candidate_docs, err := QueryDocByTerm(sterm, start_pos, limit*2)
 		if err != nil {
-			return docs, nil, err
+			return []*doc.Doc{}, nil, err
 		}
 
 		if len(candidate_docs) == 0 {
@@ -147,10 +166,10 @@ func QueryDocByTerms(terms []string, start *Offset, limit int) ([]*doc.Doc, *Off
 		}
 
 		for _, d := range candidate_docs {
-			if n >= limit {
-				break
-			}
 			start_pos = []byte(d.ID)
+			if n >= limit {
+				goto END
+			}
 
 			hit := false
 			d_dict := d.TermDict()
@@ -164,12 +183,20 @@ func QueryDocByTerms(terms []string, start *Offset, limit int) ([]*doc.Doc, *Off
 			if hit {
 				n = n + 1
 				docs = append(docs, d)
-				offset.Position = []byte(d.ID)
 			}
 		}
 	}
 
-	return docs, offset, nil
+END:
+	if !bytes.Equal(start_pos, nil) {
+		rt_offset = &Offset{
+			Bucket: []byte(sterm), Position: start_pos,
+		}
+	} else {
+		rt_offset = nil
+	}
+
+	return docs, rt_offset, nil
 }
 
 func QueryFieldByTerm(term string) ([]string, error) {
@@ -300,4 +327,44 @@ func SearchFieldValue(f, q, start string, limit int) ([]string, error) {
 	}
 
 	return rt, nil
+}
+
+func QueryFieldValueByTerms(terms []string, start *Offset, limit int, f, q string) ([]string, *Offset, error) {
+	rt := make([]string, 0)
+	if f == "" {
+		return rt, nil, fmt.Errorf("no_field")
+	}
+	if len(terms) == 0 {
+		return rt, nil, fmt.Errorf("empty_terms")
+	}
+
+	var rt_offset *Offset
+	for {
+		docs, new_offset, err := QueryDocByTerms(terms, start, limit*2)
+		if err != nil {
+			return rt, nil, err
+		}
+		start = new_offset
+
+		if len(docs) == 0 {
+			break
+		}
+		for _, d := range docs {
+			rt_offset = &Offset{
+				Bucket:   new_offset.Bucket,
+				Position: []byte(d.ID),
+			}
+
+			if len(rt) >= limit {
+				goto END
+			}
+
+			f_dict := d.TermDict()
+			if fv, ok := f_dict[f]; ok && strings.Contains(fv, q) {
+				rt = append(rt, fv)
+			}
+		}
+	}
+END:
+	return rt, rt_offset, nil
 }

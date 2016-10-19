@@ -15,7 +15,7 @@ func configApiQueryRoutes() {
 		})
 	})
 
-	router.GET("/api/v1/field", func(c *gin.Context) {
+	router.GET("/api/v1/fields", func(c *gin.Context) {
 		q := c.DefaultQuery("q", "")
 		start := c.DefaultQuery("start", "")
 		limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
@@ -29,7 +29,7 @@ func configApiQueryRoutes() {
 		})
 	})
 
-	router.GET("/api/v1/field/:f/value", func(c *gin.Context) {
+	router.GET("/api/v1/fieldvalues/field/:f", func(c *gin.Context) {
 		f := c.Param("f")
 		q := c.DefaultQuery("q", "")
 		start := c.DefaultQuery("start", "")
@@ -45,12 +45,11 @@ func configApiQueryRoutes() {
 		})
 	})
 
-	//http://127.0.0.1:6071/api/v1/related-field/term/metric=cpu.idle
-	router.GET("/api/v1/related-field/term/:term", func(c *gin.Context) {
-		t := c.Param("term")
+	router.GET("/api/v1/fields/term/:t", func(c *gin.Context) {
+		t := c.Param("t")
 		rt, err := index.QueryFieldByTerm(t)
 		if err != nil {
-			c.JSON(500, gin.H{"msg": err})
+			c.JSON(500, gin.H{"msg": err.Error()})
 		} else {
 			c.JSON(200, gin.H{
 				"value": rt,
@@ -58,13 +57,12 @@ func configApiQueryRoutes() {
 		}
 	})
 
-	//http://127.0.0.1:6071/api/v1/related-field/terms/metric=cpu.idle,home=bj
-	router.GET("/api/v1/related-field/terms/:terms", func(c *gin.Context) {
-		ts := c.Param("terms")
+	router.GET("/api/v1/fields/terms/:ts", func(c *gin.Context) {
+		ts := c.Param("ts")
 		terms := strings.Split(ts, ",")
 		rt, err := index.QueryFieldByTerms(terms)
 		if err != nil {
-			c.JSON(500, gin.H{"msg": err})
+			c.JSON(500, gin.H{"msg": err.Error()})
 		} else {
 			c.JSON(200, gin.H{
 				"value": rt,
@@ -72,8 +70,42 @@ func configApiQueryRoutes() {
 		}
 	})
 
-	router.GET("/api/v1/doc/term/:term", func(c *gin.Context) {
-		t := c.Param("term")
+	router.GET("/api/v1/fieldvalues/field/:f/terms/:ts", func(c *gin.Context) {
+		f := c.Param("f")
+		ts := c.Param("ts")
+		terms := strings.Split(ts, ",")
+		q := c.DefaultQuery("q", "")
+
+		limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
+		if err != nil {
+			limit = 10
+		}
+
+		offset_bucket := c.DefaultQuery("offset_bucket", "")
+		offset_pos := c.DefaultQuery("offset_position", "")
+
+		var offset *index.Offset
+		if offset_bucket != "" && offset_pos != "" {
+			offset = &index.Offset{
+				Bucket:   []byte(offset_bucket),
+				Position: []byte(offset_pos),
+			}
+		}
+
+		rt, next_offset, err := index.QueryFieldValueByTerms(terms, offset, limit, f, q)
+		if err != nil {
+			c.JSON(500, gin.H{"msg": err.Error()})
+		} else {
+			c.JSON(200, gin.H{
+				"value":           rt,
+				"offset_bucket":   string(next_offset.Bucket),
+				"offset_position": string(next_offset.Position),
+			})
+		}
+	})
+
+	router.GET("/api/v1/docs/term/:t", func(c *gin.Context) {
+		t := c.Param("t")
 		start := c.DefaultQuery("start", "")
 		limit, err := strconv.Atoi(c.DefaultQuery("limit", "10"))
 		if err != nil {
@@ -81,7 +113,7 @@ func configApiQueryRoutes() {
 		}
 		rt, err := index.QueryDocByTerm(t, []byte(start), limit)
 		if err != nil {
-			c.JSON(500, gin.H{"msg": err})
+			c.JSON(500, gin.H{"msg": err.Error()})
 		} else {
 			c.JSON(200, gin.H{
 				"value": rt,
@@ -89,8 +121,8 @@ func configApiQueryRoutes() {
 		}
 	})
 
-	router.GET("/api/v1/doc/terms/:terms", func(c *gin.Context) {
-		ts := c.Param("terms")
+	router.GET("/api/v1/docs/terms/:ts", func(c *gin.Context) {
+		ts := c.Param("ts")
 		terms := strings.Split(ts, ",")
 
 		offset_bucket := c.DefaultQuery("offset_bucket", "")
@@ -109,10 +141,9 @@ func configApiQueryRoutes() {
 			limit = 10
 		}
 
-		fmt.Printf("index.QueryDocByTerms, terms:%v, offset:%v, limit:%v\n", terms, offset, limit)
 		rt, next_offset, err := index.QueryDocByTerms(terms, offset, limit)
 		if err != nil {
-			c.JSON(500, gin.H{"msg": err})
+			c.JSON(500, gin.H{"msg": err.Error()})
 		} else {
 			c.JSON(200, gin.H{
 				"value":           rt,

@@ -15,15 +15,14 @@ import (
 )
 
 // each term as a bucket, for seek speedup, and save doc together
-// use most disk
 func BuildIndex() {
-	sz_key := []byte(g.SIZE_BUCKET)
-	f_key := []byte(g.FIELDS_BUCKET)
-	tf_key := []byte(g.TERM_FIELDS_BUCKET)
+	sz_bname := []byte(g.SIZE_BUCKET)
+	field_bname := []byte(g.FIELDS_BUCKET)
+	tf_bname := []byte(g.TERM_FIELDS_BUCKET)
 	g.KVDB.Update(func(tx *bolt.Tx) error {
-		tx.CreateBucketIfNotExists(sz_key)
-		tx.CreateBucketIfNotExists(f_key)
-		tx.CreateBucketIfNotExists(tf_key)
+		tx.CreateBucketIfNotExists(sz_bname)
+		tx.CreateBucketIfNotExists(field_bname)
+		tx.CreateBucketIfNotExists(tf_bname)
 		return nil
 	})
 
@@ -67,8 +66,8 @@ func BuildIndex() {
 			tags_["metric"] = d.GetMetric()
 			tags_["endpoint"] = d.GetEndpoint()
 
-			sz_bucket := tx.Bucket(sz_key)
-			tf_bucket := tx.Bucket(tf_key)
+			sz_bucket := tx.Bucket(sz_bname)
+			tf_bucket := tx.Bucket(tf_bname)
 			var buf bytes.Buffer
 			for k, v := range tags_ {
 				buf.Reset()
@@ -77,15 +76,15 @@ func BuildIndex() {
 				buf.WriteString(v)
 				term := buf.Bytes()
 
-				//term_doc
-				term_key := append([]byte(g.TERM_DOCS_BUCKET_PREFIX), term...)
-				term_bucket, err := tx.CreateBucketIfNotExists(term_key)
+				//term_bucket, _ => [doc_id:doc, doc_id:doc...]
+				term_bname := append([]byte(g.TERM_DOCS_BUCKET_PREFIX), term...)
+				term_bucket, err := tx.CreateBucketIfNotExists(term_bname)
 				if err != nil {
-					return fmt.Errorf("create term bucket: %s", err)
+					return fmt.Errorf("create-term-bucket:%s", err)
 				}
 				term_bucket.Put([]byte(doc_id), doc_bytes)
 
-				//size
+				//size_bucket, _ => [term1:size, term2:size]
 				sz := sz_bucket.Get(term)
 				if sz == nil || len(sz) == 0 {
 					sz_bucket.Put(term, g.Int64ToBytes(1))
@@ -94,24 +93,53 @@ func BuildIndex() {
 					sz_bucket.Put(term, g.Int64ToBytes(new_sz))
 				}
 
-				//fields
-				f_bucket := tx.Bucket(f_key)
+				//fields_bucket,  _ => [field1:"", field2:"", field3:""]
+				f_bucket := tx.Bucket(field_bname)
 				f_bucket.Put([]byte(k), []byte(""))
 
-				//field_value
-				fv_bucket_name := g.FVALUE_BUCKET_PREFIX + k
-				fv_bucket, _ := tx.CreateBucketIfNotExists([]byte(fv_bucket_name))
-				log.Printf("===put to %s, k:%s\n", fv_bucket_name, v)
+				//field_value_bucket, field => [value1:"", value2:"", value3:""]
+				fv_bname := g.FVALUE_BUCKET_PREFIX + k
+				fv_bucket, _ := tx.CreateBucketIfNotExists([]byte(fv_bname))
 				fv_bucket.Put([]byte(v), []byte(""))
 
-				//term_fileds
+				//term_fileds, _ => [term0x00field, term0x00field, ]
 				for f, _ := range tags {
 					buf.Reset()
 					buf.Write(term)
 					buf.WriteByte(30)
 					buf.WriteString(f)
-					log.Printf("===put to %s, k:%s\n", tf_key, buf.Bytes())
-					tf_bucket.Put(buf.Bytes(), []byte(f))
+					tf_bucket.Put(buf.Bytes(), []byte(""))
+				}
+			}
+
+			//secondary index with metric, used for query docs by terms
+			metric_v := tags_["metric"]
+			delete(tags, "metric")
+			for k, v := range tags_ {
+				buf.Reset()
+				buf.WriteString("metric=")
+				buf.WriteString(metric_v)
+				buf.WriteString(",")
+				buf.WriteString(k)
+				buf.WriteString("=")
+				buf.WriteString(v)
+				term := buf.Bytes()
+
+				//term_bucket, _ => [doc_id:doc, doc_id:doc...]
+				term_bname := append([]byte(g.TERM_DOCS_BUCKET_PREFIX), term...)
+				term_bucket, err := tx.CreateBucketIfNotExists(term_bname)
+				if err != nil {
+					return fmt.Errorf("create-term-bucket:%s", err)
+				}
+				term_bucket.Put([]byte(doc_id), doc_bytes)
+
+				//size_bucket, _ => [term1:size, term2:size]
+				sz := sz_bucket.Get(term)
+				if sz == nil || len(sz) == 0 {
+					sz_bucket.Put(term, g.Int64ToBytes(1))
+				} else {
+					new_sz := g.BytesToInt64(sz) + 1
+					sz_bucket.Put(term, g.Int64ToBytes(new_sz))
 				}
 			}
 
