@@ -55,7 +55,7 @@ func BuildIndex() {
 		}
 		log.Printf("doc:%v\n", d)
 
-		doc_id := cutils.Checksum(d.GetEndpoint(), d.GetMetric(), tags)
+		doc_id := cutils.Checksum(d.GetEndpoint(), d.GetMetric(), tags) // ps: counter的随机分布,当设置limit时 相近的counter不能在同一批返回
 		doc_bytes, err := d.Marshal()
 		if err != nil {
 			log.Fatalln("marshal doc:%s", err)

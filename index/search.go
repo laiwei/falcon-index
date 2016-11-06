@@ -171,12 +171,11 @@ func QueryDocByTerms(terms []string, start *Offset, limit int) ([]*doc.Doc, *Off
 				goto END
 			}
 
-			hit := false
+			hit := true
 			d_dict := d.TermDict()
 			for k, v := range terms_dict {
-				if v2, ok := d_dict[k]; ok && v2 == v {
-				} else {
-					hit = true
+				if v2, ok := d_dict[k]; !(ok && v2 == v) {
+					hit = false
 					break
 				}
 			}
@@ -248,6 +247,9 @@ func QueryFieldByTerms(terms []string) ([]string, error) {
 			rt = fields
 		} else {
 			rt = g.StringSliceIntersect(rt, fields)
+			if len(rt) == 0 {
+				return []string{}, nil
+			}
 		}
 	}
 
